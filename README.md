@@ -21,7 +21,7 @@ VB6 IDE 外接插件（InfoAddin）：在 IDE 进程内开启 HTTP 服务，把�
 
 ## 安装（一键）
 
-1. 下载本仓库全部文件，放在同一文件夹
+1. 下载本仓库全部文件，保持目录结构（`InfoAddin.dll` 与注册脚本须在同一文件夹）
 2. 双击 `register_dll.vbs`（UAC 弹窗点允许）
 3. 启动（或重启）VB6 IDE——插件自动加载，服务自动监听 127.0.0.1:8306（端口被占自动 +1 顺延）
 
@@ -35,17 +35,17 @@ curl http://127.0.0.1:8306/api/status
 
 ## 使用
 
-本仓库自带命令行工具，在文件所在目录执行：
+命令行工具在 `skill/` 子文件夹，在仓库根目录执行：
 
 ```
-node skill.js status          # 或：cscript //nologo skill.vbs status
-node skill.js snapshot        # 工程全量快照
-node skill.js procs Module1   # 列出模块内全部过程
-node skill.js code-get Module1
-node skill.js win-show immediate
+node skill/skill.js status          # 或：cscript //nologo skill\skill.vbs status
+node skill/skill.js snapshot        # 工程全量快照
+node skill/skill.js procs Module1   # 列出模块内全部过程
+node skill/skill.js code-get Module1
+node skill/skill.js win-show immediate
 ```
 
-完整命令清单见 [SKILL.md](SKILL.md)；也可以用任意 HTTP 客户端直接调 REST API。
+完整命令清单见 [skill/SKILL.md](skill/SKILL.md)；也可以用任意 HTTP 客户端直接调 REST API。
 
 ## 安全说明
 
