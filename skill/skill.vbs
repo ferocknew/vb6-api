@@ -9,6 +9,7 @@ Const PORT_TRIES = 20
 Const TRUNC = 60000
 
 Dim g_port, posArr(32), posCnt, sw, swFull, swMax, swType
+Dim g_t0, sCj, sJobId
 Dim optK(31), optV(31), optCnt, swCleanup
 g_port = 0
 posCnt = 0
@@ -181,12 +182,63 @@ Function HttpReq(m, pth, bodyJson)
     HttpReq = txt
 End Function
 
+' compile 轮询专用：同 HttpReq 但不因 ok:false 退出（编译失败终态是正常业务结果）；
+' 不并入 HttpReq 加参——VBScript 无 Optional 参数且省略实参报运行时错，不动既有调用行
+Function HttpReqRaw(m, pth, bodyJson)
+    Dim http
+    FindPort
+    Set http = CreateObject("MSXML2.ServerXMLHTTP")
+    On Error Resume Next
+    http.Open m, "http://127.0.0.1:" & g_port & pth, False
+    http.SetTimeouts 60000, 60000, 60000, 60000
+    If Len(bodyJson) > 0 Then
+        http.SetRequestHeader "Content-Type", "application/json; charset=utf-8"
+        http.Send bodyJson
+    Else
+        http.Send ""
+    End If
+    If Err.Number <> 0 Then
+        On Error GoTo 0
+        Fail "请求失败：" & Err.Description
+    End If
+    On Error GoTo 0
+    HttpReqRaw = http.responseText
+End Function
+
 Function ExtractMsg(j)
     Dim re, m
     Set re = New RegExp
     re.Pattern = """message""\s*:\s*""(([^""]|\\"")*)"""
     Set m = re.Execute(j)
     If m.Count > 0 Then ExtractMsg = m(0).SubMatches(0) Else ExtractMsg = j
+End Function
+
+' 从 JSON 文本抽取字符串字段值（compile 轮询取 jobId 用；不做反转义，字段值为纯数字串场景够用）
+Function ExtractJsonStr(s, key)
+    Dim re, m
+    Set re = New RegExp
+    re.Pattern = """" & key & """" & "\s*:\s*""([^""]*)"""
+    Set m = re.Execute(s)
+    If m.Count > 0 Then ExtractJsonStr = m(0).SubMatches(0) Else ExtractJsonStr = ""
+End Function
+
+' 逐条列出编译错误（匹配 {"module":"x","line":N,"desc":"y"} 结构），返回条数
+Function ListErrors(s)
+    Dim re, m, n
+    Set re = New RegExp
+    re.Pattern = "\{""module"":""([^""]*)"",""line"":(\d+)," + """desc"":""([^""]*)""\}"
+    re.Global = True
+    n = 0
+    For Each m In re.Execute(s)
+        WScript.Echo "  " & Unesc(m.SubMatches(0)) & " 行 " & m.SubMatches(1) & ": " & Unesc(m.SubMatches(2))
+        n = n + 1
+    Next
+    ListErrors = n
+End Function
+
+' 轻量 JSON 反转义（module/desc 展示用：\n 折空格、\" 还原引号）
+Function Unesc(s)
+    Unesc = Replace(Replace(s, "\n", " "), "\""", """")
 End Function
 
 Function Qs(q)
@@ -216,6 +268,15 @@ Function ReadRaw(f)
     ts.Close
     If Len(s) > 0 And AscW(Mid(s, 1, 1)) = 65279 Then s = Mid(s, 2)   ' 剥 BOM
     ReadRaw = s
+End Function
+
+' 读 JSON 源（对齐 skill.js readJsonFrom）：内联 JSON 字面量（以 { 起）直接用，否则当文件路径读（ReadRaw）
+Function JsonSource(s)
+    If Len(s) > 0 And Left(Trim(s), 1) = "{" Then
+        JsonSource = s
+    Else
+        JsonSource = ReadRaw(s)
+    End If
 End Function
 
 ' 逗号分隔串 → JSON 字符串数组（[..] 形态，项经 JsonEsc）
@@ -275,6 +336,7 @@ Select Case cmd
         WScript.Echo "  form-get | ctrl-add | ctrl-set | ctrl-del | form-align | form-style"
         WScript.Echo "  win-show | save | debug-status | debug-run | debug-stop"
         WScript.Echo "  bps | bp-set | bp-del | bp-clear | debug-output"
+        WScript.Echo "  compile                                  影子编译（隐含 save；1s 轮询至完成，失败列错误行号）"
         WScript.Echo "公共项：--full / --max N / 环境变量 VB6IDE_PORT；各命令用法见同名 skill.js"
     Case "status"
         FindPort
@@ -373,8 +435,8 @@ Select Case cmd
         bj = bj & "}"
         OutData HttpReq("POST", "/api/forms/" & Esc(P(0)) & "/controls", bj), swFull, swMax
     Case "ctrl-set"
-        If P(0) = "" Or P(1) = "" Or P(2) = "" Then Fail "用法：ctrl-set <form> <ctrl> <props.json>（文件形如 {""props"":{...}}，vbs 版原文直发）"
-        OutData HttpReq("PATCH", "/api/forms/" & Esc(P(0)) & "/controls/" & Esc(P(1)), ReadRaw(P(2))), swFull, swMax
+        If P(0) = "" Or P(1) = "" Or P(2) = "" Then Fail "用法：ctrl-set <form> <ctrl> <props.json|内联> （props 对象如 {""Caption"":""X""}，vbs 版自动包 {""props"":...}；同 skill.js）"
+        OutData HttpReq("PATCH", "/api/forms/" & Esc(P(0)) & "/controls/" & Esc(P(1)), "{""props"":" & JsonSource(P(2)) & "}"), swFull, swMax
     Case "ctrl-del"
         If P(0) = "" Or P(1) = "" Then Fail "用法：ctrl-del <form> <ctrl>（不可逆，删前先 form-get 确认）"
         OutData HttpReq("DELETE", "/api/forms/" & Esc(P(0)) & "/controls/" & Esc(P(1)), ""), swFull, swMax
@@ -385,8 +447,8 @@ Select Case cmd
         bj = bj & "}"
         OutData HttpReq("POST", "/api/forms/" & Esc(P(0)) & "/align", bj), swFull, swMax
     Case "form-style"
-        If P(0) = "" Or P(1) = "" Then Fail "用法：form-style <form> <style.json>（文件即请求体原文）"
-        OutData HttpReq("PATCH", "/api/forms/" & Esc(P(0)) & "/style", ReadRaw(P(1))), swFull, swMax
+        If P(0) = "" Or P(1) = "" Then Fail "用法：form-style <form> <style.json|内联> （style 对象如 {""caption"":""X""}；同 skill.js，支持内联 JSON）"
+        OutData HttpReq("PATCH", "/api/forms/" & Esc(P(0)) & "/style", JsonSource(P(1))), swFull, swMax
     Case "win-show"
         tp = P(0)
         If tp = "" Then tp = "immediate"
@@ -414,6 +476,27 @@ Select Case cmd
         OutData HttpReq("DELETE", "/api/debug/breakpoints", "{}"), swFull, swMax
     Case "debug-output"
         OutData HttpReq("GET", "/api/debug/output", ""), swFull, swMax
+    Case "compile"
+        ' 影子编译（0.1.14）：POST 启动（隐含 save）→ 1s 轮询（总超时 200s）→ 完成输出
+        ' 终态 ok:false 是编译失败的正常业务，轮询走 HttpReqRaw（不因 ok:false 退出）
+        FindPort
+        sCj = HttpReqRaw("POST", "/api/compile", "{}")
+        sJobId = ExtractJsonStr(sCj, "jobId")
+        If sJobId = "" Then Fail "启动响应缺 jobId：" & sCj
+        WScript.Echo "编译任务已启动 job " & sJobId & "（隐含 save，按磁盘快照编译）"
+        g_t0 = Timer
+        Do
+            WScript.Sleep 1000
+            If Timer < g_t0 Then g_t0 = Timer    ' 午夜回绕防御
+            If (Timer - g_t0) * 1000 > 200000 Then Fail "编译轮询超时（200s）——可稍后手动 GET /api/compile/" & sJobId & " 查询"
+            sCj = HttpReqRaw("GET", "/api/compile/" & sJobId, "")
+        Loop While InStr(sCj, """status"":""compiling""") > 0
+        If InStr(sCj, """ok"":true") > 0 Then
+            WScript.Echo "编译成功：" & sCj
+        Else
+            WScript.Echo "编译失败："
+            If ListErrors(sCj) = 0 Then WScript.Echo "  " & sCj    ' 无结构化错误行，输出原始信封（含 raw）
+        End If
     Case Else
         Fail "未知命令：" & cmd & "（skill.vbs help 查看清单）"
 End Select

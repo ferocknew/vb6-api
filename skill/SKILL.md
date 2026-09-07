@@ -21,7 +21,7 @@ cscript //nologo .claude\skills\vb6ide-api\skill.vbs <command> [args]
 ```
 
 `skill.vbs` 与 skill.js **命令完全同构、请求规范一致**（端口探测、非 ASCII 转 \uXXXX、CRLF 归一、代码体只从文件读、声明头拦截、信封判定），仅依赖 Windows 自带的 MSXML2.ServerXMLHTTP 与 FSO，零第三方依赖、零 PowerShell 依赖。判定优先级：有 node → skill.js；无 node → skill.vbs；两者都按同一套命令调用，输出格式一致。
-vbs 版差异：① stdin（`-`）不可用，代码体/JSON 一律写临时文件后传路径；② `ctrl-set` 的 props 文件须自带 `{"props":{...}}` 包装（原文直发，skill.js 版会自动包装）。
+vbs 版差异：① stdin（`-`）不可用，代码体/JSON 一律写临时文件后传路径（但内联 JSON 字面量如 `{"Caption":"X"}` 可直接作参数，等价 skill.js 的 readJsonFrom 内联支持）；② `ctrl-set` 现已同 skill.js 自动包 `{"props":...}`，props 文件写内层对象（如 `{"Caption":"X","Left":100}`）即可，不再需手写 `{"props":{...}}` 包装；③ `form-style`/`ctrl-set` 第三参数均支持内联 JSON（同 js）。
 
 公共项：`--full` 全量输出（大响应默认截断 60000 字符）、`--max N` 调整截断、环境变量 `VB6IDE_PORT` 指定端口（缺省自动探测 8306 起顺延）。出错时 skill.js 以非零退出码退出并给出 `HTTP 状态 + message`，先读错误再决定下一步。
 
@@ -47,7 +47,7 @@ vbs 版差异：① stdin（`-`）不可用，代码体/JSON 一律写临时文�
 | `refs` / `ref-add` / `ref-del <guid>` / `typelibs [kw]` | 引用库管理；ref-add 三模式：`--guid {G} [--major --minor]` / `--path P` / `--name 名` |
 | `form-get <form>` | 窗体信息+控件清单（**坐标单位 twips**，15 twips=1 像素） |
 | `ctrl-add <form> <name> <cls> [--left --top --width --height --caption]` | 添加控件 |
-| `ctrl-set <form> <ctrl> <props.json\|->` | 设控件属性；文件形如 `{"props":{"Caption":"X","Left":100}}` |
+| `ctrl-set <form> <ctrl> <props.json\|->` | 设控件属性；文件写内层对象 `{"Caption":"X","Left":100}`（自动包 {props:...}，支持内联 JSON） |
 | `ctrl-del <form> <ctrl>` | 删除控件（不可逆） |
 | `form-align <form> --mode M --controls a,b,c [--value N]` | 对齐/等距；mode：left/right/top/bottom/center-h/center-v/width/height/space-h/space-v |
 | `form-style <form> <style.json\|->` | 窗体样式；文件形如 `{"caption":"X","width":6000,"startUpPosition":1}` |
@@ -56,6 +56,7 @@ vbs 版差异：① stdin（`-`）不可用，代码体/JSON 一律写临时文�
 | `debug-status` / `debug-run` / `debug-stop` | 调试三态；run 语义按状态分（design=启动/break=继续；run 态返回 409） |
 | `bps` / `bp-set <mod> <line>` / `bp-del <mod> <line>` / `bp-clear` | 断点（**服务端自记账**，IDE 手工断点不可见；**bp-set 是 toggle**，同行重复调用=取消） |
 | `debug-output` | 读立即窗口输出 |
+| `compile` | **影子编译**：隐含 save 后按磁盘快照在第二 VB6 实例 `/make`（约 3-10 秒，命令内部 1s 轮询至完成）；成功一句话+耗时，失败逐条 `模块 行号 描述` |
 
 ## 代码写入硬性规则（skill.js 已内置校验的标 ✔，仍需你遵守的标 ✎）
 
@@ -71,6 +72,7 @@ vbs 版差异：① stdin（`-`）不可用，代码体/JSON 一律写临时文�
 2. **生成/重写模块**：标准/类模块用 `code-put`（可加 `--type` 创建）；**窗体/用户控件禁止整写**，改用 `proc-put`/过程级操作。
 3. **写代码的正确姿势**：先把代码写进临时文件（如 `tmp_code.vb`，UTF-8），再 `code-put <mod> tmp_code.vb`——杜绝 shell 转义与引号问题。
 4. **删前必读**：任何 delete 前先 `code-get`/`proc-get` 确认目标确实多余。
+5. **编译-修改循环（写码后必做）**：`code-put`/`proc-put` → `compile` 验证 → 失败则按输出「`模块 行号 描述`」逐条修复（行号已换算为 IDE 1 基准，可直接 `code-get`/`proc-get` 对照）→ 再 `compile`，循环直至编译成功。影子编译抓「变量未定义/类型不匹配/语法错误」等编译级问题，与文本级静态审查互补；隐含 save 落盘，无需先手动 `save`。IDE 处于运行态时 compile 拒绝（400），先 `debug-stop`。
 
 ## 禁止 / 慎用
 

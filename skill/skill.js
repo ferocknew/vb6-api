@@ -262,7 +262,7 @@ const commands = {
   },
   async 'ctrl-set'(o) {
     const [form, ctrl, file] = o._;
-    if (!form || !ctrl || !file) fail('用法：ctrl-set <form> <ctrl> <props.json|->   文件形如 {"props":{"Caption":"X","Left":100}}');
+    if (!form || !ctrl || !file) fail('用法：ctrl-set <form> <ctrl> <props.json|->   内容为内层属性对象，如 {"Caption":"X","Left":100}（自动包 {props:...}，支持内联 JSON）');
     const props = readJsonFrom(file, 'props 文件');
     out((await call('PATCH', '/api/forms/' + encodeURIComponent(form) + '/controls/' + encodeURIComponent(ctrl), { props })).data, o);
   },
@@ -313,6 +313,47 @@ const commands = {
   },
   async 'bp-clear'(o) { out((await call('DELETE', '/api/debug/breakpoints')).data, o); }, // 空 body 全清（0.1.9 契约：非空 body 解析不出 module 必 400）
   async 'debug-output'(o) { out((await call('GET', '/api/debug/output')).data, o); },
+
+  // compile（0.1.14）：POST 启动影子编译（隐含 save）→ 1s 间隔轮询（总超时 200s）→ 完成输出结果
+  // 不走 call()：终态 ok:false（编译失败）是正常业务结果，不能被 call 的 fail-on-ok:false 短路
+  async compile(o) {
+    const POLL_MS = 1000;
+    const TOTAL_MS = 200000;           // 服务端 180s 超时击杀 + 轮询裕量
+    const port = await findPort();
+    const r0 = await req(port, 'POST', '/api/compile', {});
+    if (r0.envelope && r0.envelope.ok === false) fail('HTTP ' + r0.status + ' — ' + r0.envelope.message);
+    if (r0.status !== 202) fail('启动响应非 202：HTTP ' + r0.status + ' ' + r0.text.slice(0, 200));
+    const jobId = r0.envelope && r0.envelope.data && r0.envelope.data.jobId;
+    if (!jobId) fail('启动响应缺 jobId：' + r0.text.slice(0, 200));
+    console.log('编译任务已启动 job ' + jobId + '（隐含 save，按磁盘快照编译）');
+    const t0 = Date.now();
+    for (;;) {
+      await new Promise(r => setTimeout(r, POLL_MS));
+      if (Date.now() - t0 > TOTAL_MS) {
+        fail('编译轮询超时（200s）——可稍后手动 GET /api/compile/' + jobId + ' 查询（服务端 180s 会击杀卡死任务）');
+      }
+      const r = await req(port, 'GET', '/api/compile/' + encodeURIComponent(jobId));
+      if (!r.envelope) fail('HTTP ' + r.status + ' 非 JSON 响应：' + r.text.slice(0, 200));
+      const env = r.envelope;
+      const d = env.data || {};
+      if (env.ok === true && d.status === 'compiling') {
+        process.stdout.write('\r编译中... ' + Math.round((Date.now() - t0) / 1000) + 's');
+        continue;
+      }
+      process.stdout.write('\n');
+      if (env.ok) {
+        console.log('编译成功（耗时 ' + d.durationMs + 'ms）');
+      } else {
+        console.log('编译失败（' + (d.count || 0) + ' 处错误，耗时 ' + d.durationMs + 'ms）：');
+        for (const e of (d.errors || [])) {
+          console.log('  ' + (e.module || '(未知模块)') + ' 行 ' + e.line + ': ' + e.desc);
+        }
+        if (d.raw) console.log('  原始日志摘要：' + d.raw);
+      }
+      if (o && (o.full || o.max)) out(d, o); // --full/--max 时附带完整 data
+      return;
+    }
+  },
 };
 
 // ---------- 入口 ----------
@@ -347,6 +388,7 @@ const commands = {
     console.log('  debug-status | debug-run | debug-stop    调试三态（run=启动/继续）');
     console.log('  bps | bp-set | bp-del | bp-clear         断点（自记账；bp-set 是 toggle）');
     console.log('  debug-output                             读立即窗口输出');
+    console.log('  compile                                  影子编译（隐含 save；1s 轮询至完成，失败列错误行号）');
     console.log('\n公共项：--full 全量输出 / --max N 截断字符数 / VB6IDE_PORT 指定端口');
     console.log('bp-del 无参数=清除全部断点（发空 body；服务端 0.1.9 起拒绝非空畸形 body 全清）；bp-set 同行重复调用会取消断点（toggle 语义）');
     return;
