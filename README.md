@@ -47,6 +47,10 @@ node skill/skill.js win-show immediate
 
 完整命令清单见 [skill/SKILL.md](skill/SKILL.md)；也可以用任意 HTTP 客户端直接调 REST API。
 
+### SKILL 导入成功
+
+<img width="367" height="165" alt="126689bdf3b9e99c39d74e11fafa649c" src="https://github.com/user-attachments/assets/c265510f-c3e6-46fe-b859-2284289eafef" />
+
 ### workBuddy 安装
 - 把skill 目录压缩成zip 并导入
 <img width="2374" height="810" alt="8809a26e6c94186a6fcdf8a00dd2ba19" src="https://github.com/user-attachments/assets/cdff4ff8-9400-41ed-8a8e-8219afdea981" />
