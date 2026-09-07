@@ -63,6 +63,13 @@ node skill/skill.js win-show immediate
 - 立即窗口停靠时读不到内容（浮动态可读）
 - IDE 里手工 F9 打的断点对 API 不可见（API 只返回自己设置的断点）
 
+## GitHub 发布
+
+- 仓库地址：<https://github.com/ferocknew/vb6-api>
+- 获取：`git clone https://github.com/ferocknew/vb6-api.git`，或仓库页绿色 **Code** → **Download ZIP**
+- 更新：关闭 VB6 IDE → 用新版覆盖本目录文件 → 双击 `unregister_dll.vbs` 注销旧版 → 双击 `register_dll.vbs` 注册新版 → 重启 IDE（DLL 每次编译 CLSID 都会变，覆盖后必须重新注册）
+- 当前仅发布编译产物，是否开源取决于关注量（见下节反馈）
+
 ## 反馈
 
 当前仅发布编译产物。如果你有兴趣看到源码开源，或想要新功能，请点 **Star** 或开 **Issue**——关注量将决定开源与后续开发的节奏。
