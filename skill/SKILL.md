@@ -57,6 +57,14 @@ vbs 版差异：① stdin（`-`）不可用，代码体/JSON 一律写临时文�
 | `bps` / `bp-set <mod> <line>` / `bp-del <mod> <line>` / `bp-clear` | 断点（**服务端自记账**，IDE 手工断点不可见；**bp-set 是 toggle**，同行重复调用=取消） |
 | `debug-output` | 读立即窗口输出 |
 | `compile` | **影子编译**：隐含 save 后按磁盘快照在第二 VB6 实例 `/make`（约 3-10 秒，命令内部 1s 轮询至完成）；成功一句话+耗时，失败逐条 `模块 行号 描述` |
+| `guide` | **拉服务端下发的 VB6 编程规范**（会话内首次写码前必读，见下节）：VB6≠VBA/VBS 规则、VBA 常量混入黑名单 |
+
+## 写码前置：编程规范注入（LLM 自判，硬性）
+
+- **判断规则**：若本会话上下文中尚未出现过 VB6 编程规范内容（`guide` 输出或响应 `recommendations.rule`），则**任何写码操作（code-put / proc-put / lines-insert / lines-replace / ctrl-add 等）之前必须先跑一次 `guide`**。
+- 规范来自服务端 GET /api/guidelines（0.1.17 起，随 DLL 版本演进，无需更新 skill 即可获得最新版）：目标语言定位、规则清单、VBA 常量混入黑名单（如 `vbFromDatabase` 是 Access VBA 专属，VB6 编译报「变量未定义」，改用 `vbFromUnicode`）。
+- 所有 API 响应信封顶层带 `recommendations` 字段：`lang`（语言定位）、`rule`（一句核心规范）、`guidelines`（完整规范端点指引）、`skillLatest`（服务端建议的 skill 版本）。`skillLatest` 高于当前 skill 版本时命令会提示更新 skill 目录：https://github.com/ferocknew/vb6-api/tree/main/skill
+- `guide` 报 404 = 服务端 DLL < 0.1.17（无此端点）：提示用户更新 DLL（https://github.com/ferocknew/vb6-api 下载后跑 register_dll.vbs 并重启 IDE），勿继续盲写代码。
 
 ## 代码写入硬性规则（skill.js 已内置校验的标 ✔，仍需你遵守的标 ✎）
 

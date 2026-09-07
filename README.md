@@ -11,6 +11,7 @@ VB6 IDE 外接插件（InfoAddin）：在 IDE 进程内开启 HTTP 服务，把�
 - IDE 工具窗口开关、工程保存
 - 调试状态、断点管理、run 启动
 - 影子编译：POST /api/compile 把当前工程同步到临时目录，由第二个 VB6.EXE 进程异步编译验证（不干扰 IDE 内存），轮询查询结果与错误行号
+- 编程规范注入：GET /api/guidelines 下发 VB6 编程规范全文（VB6≠VBA/VBS 规则、VBA 常量混入黑名单），所有 API 响应附带 recommendations 精简规范与 skillLatest 版本协商
 - 工具栏位置记忆：退出时写 DLL 同目录 `toolbar.ini`，下次启动恢复上次停靠位置
 
 共 17 组端点，全部实测回归通过。服务在线后浏览器打开 `http://127.0.0.1:8306/docs` 可看交互式文档（Swagger UI），`/openapi.json` 输出 OpenAPI 规范。
@@ -94,5 +95,6 @@ node skill/skill.js win-show immediate
 
 ## 版本记录
 
+- 0.1.17（2026-09-07）：编程规范动态注入——`GET /api/guidelines` 下发 VB6≠VBA/VBS 规则与 VBA 常量黑名单（如 `vbFromDatabase` 是 Access 专属、VB6 用 `vbFromUnicode`）；所有 API 响应附带 `recommendations`（lang/rule/guidelines/skillLatest），skill 过旧自动提示更新地址；skill 新增 `guide` 命令（会话首次写码前必读）；修复 `/api/ui/save-project` 不落盘脏模块缺陷；编译错误行号换算为 IDE 1 基准（0.1.16 修正随版生效）
 - 0.1.15（2026-09-07）：影子编译 API——`POST /api/compile` 异步编译当前工程并返回错误行号，配合 skill 实现 AI 自动「改码→编译→修复」闭环；工具栏位置记忆（`toolbar.ini`）；修复保存不落盘脏模块、影子目录清理失败等缺陷
 - 0.1.11（2026-09-06）：16 组端点全量上线（工程/模块/过程/行级/引用/窗体/调试/UI），回归 39/40 通过

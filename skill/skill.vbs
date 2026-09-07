@@ -7,11 +7,14 @@ Option Explicit
 Const PORT_BASE = 8306
 Const PORT_TRIES = 20
 Const TRUNC = 60000
+Const SKILL_VER = "0.1.17"       ' 本 skill 版本（随 bin 发版同步 bump；服务端响应下发 skillLatest 供比较）
+Const SKILL_UPDATE_URL = "https://github.com/ferocknew/vb6-api/tree/main/skill"
 
 Dim g_port, posArr(32), posCnt, sw, swFull, swMax, swType
-Dim g_t0, sCj, sJobId
+Dim g_t0, sCj, sJobId, g_lastStatus
 Dim optK(31), optV(31), optCnt, swCleanup
 g_port = 0
+g_lastStatus = 0
 posCnt = 0
 sw = ""
 swFull = False
@@ -176,6 +179,7 @@ Function HttpReq(m, pth, bodyJson)
     End If
     On Error GoTo 0
     txt = http.responseText
+    CheckSkillOutdated txt
     If InStr(txt, """ok"":false") > 0 Then
         Fail "HTTP " & http.Status & " ok:false — " & ExtractMsg(txt)
     End If
@@ -202,7 +206,9 @@ Function HttpReqRaw(m, pth, bodyJson)
         Fail "请求失败：" & Err.Description
     End If
     On Error GoTo 0
+    g_lastStatus = http.Status
     HttpReqRaw = http.responseText
+    CheckSkillOutdated HttpReqRaw
 End Function
 
 Function ExtractMsg(j)
@@ -221,6 +227,37 @@ Function ExtractJsonStr(s, key)
     Set m = re.Execute(s)
     If m.Count > 0 Then ExtractJsonStr = m(0).SubMatches(0) Else ExtractJsonStr = ""
 End Function
+
+' 版本比较（分段数值）：a < b 返回 True（"0.1.9" < "0.1.17"）
+Function VerLess(a, b)
+    Dim pa, pb, i, x, y
+    pa = Split(a & "", ".")
+    pb = Split(b & "", ".")
+    For i = 0 To 3
+        If i < UBound(pa) + 1 Then x = CLng(pa(i)) Else x = 0
+        If i < UBound(pb) + 1 Then y = CLng(pb(i)) Else y = 0
+        If x <> y Then
+            VerLess = (x < y)
+            Exit Function
+        End If
+    Next
+    VerLess = False
+End Function
+
+' skill 过旧提示（任意响应触发；recommendations.skillLatest 与本地 SKILL_VER 比较；一次会话只提示一次）
+Dim g_skillWarned
+g_skillWarned = False
+Sub CheckSkillOutdated(txt)
+    Dim latest
+    If g_skillWarned Then Exit Sub
+    latest = ExtractJsonStr(txt, "skillLatest")
+    If Len(latest) > 0 Then
+        If VerLess(SKILL_VER, latest) Then
+            g_skillWarned = True
+            WScript.StdErr.WriteLine "[skill 过旧] 当前 " & SKILL_VER & "，服务端建议 >= " & latest & "：新版含新命令与规范注入，请更新 " & SKILL_UPDATE_URL
+        End If
+    End If
+End Sub
 
 ' 逐条列出编译错误（匹配 {"module":"x","line":N,"desc":"y"} 结构），返回条数
 Function ListErrors(s)
@@ -337,7 +374,9 @@ Select Case cmd
         WScript.Echo "  win-show | save | debug-status | debug-run | debug-stop"
         WScript.Echo "  bps | bp-set | bp-del | bp-clear | debug-output"
         WScript.Echo "  compile                                  影子编译（隐含 save；1s 轮询至完成，失败列错误行号）"
+        WScript.Echo "  guide                                    拉 VB6 编程规范（会话首次写码前必读）"
         WScript.Echo "公共项：--full / --max N / 环境变量 VB6IDE_PORT；各命令用法见同名 skill.js"
+        WScript.Echo "skill 版本协商：服务端响应下发 skillLatest，过旧时提示更新 " & SKILL_UPDATE_URL
     Case "status"
         FindPort
         WScript.Echo "port: " & g_port
@@ -497,6 +536,19 @@ Select Case cmd
             WScript.Echo "编译失败："
             If ListErrors(sCj) = 0 Then WScript.Echo "  " & sCj    ' 无结构化错误行，输出原始信封（含 raw）
         End If
+    Case "guide"
+        ' 拉 VB6 编程规范全文（0.1.17）：GET /api/guidelines；404 = 服务端 DLL 过旧给出升级指引
+        ' 不走 HttpReq：404 特判优先于 ok:false 报错；轮询 HttpReqRaw 顺带取 g_lastStatus
+        FindPort
+        tp = HttpReqRaw("GET", "/api/guidelines", "")
+        If g_lastStatus = 404 Then
+            Fail "服务端无 /api/guidelines 端点（DLL 版本 < 0.1.17）：请更新 DLL 并重新注册（https://github.com/ferocknew/vb6-api 下载后跑 register_dll.vbs，再重启 IDE）后再用 guide"
+        End If
+        If InStr(tp, """ok"":false") > 0 Then
+            Fail "HTTP " & g_lastStatus & " ok:false — " & ExtractMsg(tp)
+        End If
+        WScript.Echo "=== VB6 编程规范（服务端下发 JSON 全文；规则列表 rules 与 VBA 常量黑名单 vbaBlacklist）==="
+        OutData tp, swFull, swMax
     Case Else
         Fail "未知命令：" & cmd & "（skill.vbs help 查看清单）"
 End Select

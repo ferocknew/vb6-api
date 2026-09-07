@@ -12,6 +12,8 @@ const PORT_BASE = 8306;
 const PORT_MAX_TRIES = 20;
 const TIMEOUT_MS = 30000;
 const TRUNCATE_DEFAULT = 60000; // 大响应默认截断字符数，--full 取全量
+const SKILL_VER = '0.1.17';     // 本 skill 版本（每次随 bin 发版同步 bump；服务端 status/info 据此判定过旧）
+const SKILL_UPDATE_URL = 'https://github.com/ferocknew/vb6-api/tree/main/skill'; // skill 固定更新地址
 
 // ---------- 参数解析 ----------
 // 通用规则：--key value 成对收（值并入 opts.key）；--cleanup/--full 两个开关型例外收 true
@@ -52,7 +54,7 @@ async function findPort() {
 async function req(port, method, path, bodyObj, rawBody) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  const headers = {};
+  const headers = { 'X-Skill-Ver': SKILL_VER }; // 版本协商：服务端 0.1.17 起在 status/info 响应判定 skillOutdated
   let body;
   if (rawBody !== undefined) {
     body = rawBody; // 已是字符串（代码体），node fetch 按 UTF-8 发送
@@ -75,7 +77,25 @@ async function req(port, method, path, bodyObj, rawBody) {
   const text = await res.text();
   let env = null;
   try { env = JSON.parse(text); } catch (_) { /* 非 JSON（如 /docs HTML），透传 */ }
+  if (env && env.recommendations) warnSkillOutdated(env.recommendations); // 服务端每响应下发 skillLatest，客户端自比
   return { status: res.status, text, envelope: env };
+}
+
+// ---------- 版本比较（分段数值：'0.1.9' < '0.1.17'）与 skill 过旧提示（一次会话只提示一次） ----------
+function verLess(a, b) {
+  const pa = String(a).split('.'), pb = String(b).split('.');
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = parseInt(pa[i] || '0', 10), y = parseInt(pb[i] || '0', 10);
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+let skillWarned = false;
+function warnSkillOutdated(rec) {
+  if (skillWarned || !rec.skillLatest || !verLess(SKILL_VER, rec.skillLatest)) return;
+  skillWarned = true;
+  console.error('⚠ skill 版本过旧（当前 ' + SKILL_VER + '，服务端建议 ≥ ' + rec.skillLatest +
+    '）：新版含新命令与规范注入，请更新 ' + SKILL_UPDATE_URL);
 }
 
 async function call(method, path, bodyObj, rawBody) {
@@ -354,6 +374,31 @@ const commands = {
       return;
     }
   },
+
+  // guide（0.1.17）：拉取服务端下发的 VB6 编程规范全文（GET /api/guidelines）。
+  // 会话首次写码前必读（SKILL.md 硬性约定）：注入「VB6≠VBA/VBS」规则与 VBA 常量混入黑名单。
+  // 不走 call()：404 需特判为「服务端 DLL 过旧」给出升级指引，而非笼统报错。
+  async guide(o) {
+    const port = await findPort();
+    const r = await req(port, 'GET', '/api/guidelines');
+    if (r.status === 404) {
+      fail('服务端无 /api/guidelines 端点（DLL 版本 < 0.1.17）：请更新 DLL 并重新注册（https://github.com/ferocknew/vb6-api 下载后跑 register_dll.vbs，再重启 IDE）后再用 guide');
+    }
+    if (!r.envelope) fail('HTTP ' + r.status + ' 非 JSON 响应：' + r.text.slice(0, 200));
+    if (!r.envelope.ok) fail('HTTP ' + r.status + ' — ' + r.envelope.message);
+    const d = r.envelope.data || {};
+    console.log('=== VB6 编程规范（服务端下发' + (d.version ? '，DLL ver ' + d.version : '') + '）===');
+    if (d.language) console.log('目标语言：' + d.language + (d.notVbaOrVbs ? '（不是 VBA / VBScript，禁止混入两者语法与常量）' : ''));
+    if (Array.isArray(d.rules) && d.rules.length) {
+      console.log('\n[规则]');
+      d.rules.forEach((line, i) => console.log((i + 1) + '. ' + line));
+    }
+    if (Array.isArray(d.vbaBlacklist) && d.vbaBlacklist.length) {
+      console.log('\n[禁止混入的 VBA 常量（写码前自查）]');
+      for (const b of d.vbaBlacklist) console.log('- ' + b.name + ' → 改用 ' + b.replacement + '：' + b.reason);
+    }
+    if (o && (o.full || o.max)) out(d, o); // --full 时附完整 JSON
+  },
 };
 
 // ---------- 入口 ----------
@@ -389,7 +434,9 @@ const commands = {
     console.log('  bps | bp-set | bp-del | bp-clear         断点（自记账；bp-set 是 toggle）');
     console.log('  debug-output                             读立即窗口输出');
     console.log('  compile                                  影子编译（隐含 save；1s 轮询至完成，失败列错误行号）');
+    console.log('  guide                                    拉 VB6 编程规范（会话首次写码前必读：VB6≠VBA/VBS、VBA 常量黑名单）');
     console.log('\n公共项：--full 全量输出 / --max N 截断字符数 / VB6IDE_PORT 指定端口');
+    console.log('skill 版本协商：请求头 X-Skill-Ver=' + SKILL_VER + '，服务端判定过旧会提示更新 ' + SKILL_UPDATE_URL);
     console.log('bp-del 无参数=清除全部断点（发空 body；服务端 0.1.9 起拒绝非空畸形 body 全清）；bp-set 同行重复调用会取消断点（toggle 语义）');
     return;
   }
