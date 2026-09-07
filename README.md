@@ -53,6 +53,11 @@ node skill/skill.js win-show immediate
 
 <img width="982" height="726" alt="7eb798395134acee4a4932d66b85178e" src="https://github.com/user-attachments/assets/87cd1272-f5f2-43c1-b121-c01923c0e50f" />
 
+### TRAE 技能导入
+- https://docs.trae.ai/ide/skills?_lang=zh
+
+<img width="2336" height="956" alt="image" src="https://github.com/user-attachments/assets/b2b9752c-954e-4ce2-9921-aae4fb914c63" />
+
 
 ## 安全说明
 
