@@ -33,7 +33,7 @@ curl http://127.0.0.1:8306/api/status
 
 返回 `{"ok":true,...}` 即成功。
 
-## 使用
+## SKILL 使用
 
 命令行工具在 `skill/` 子文件夹，在仓库根目录执行：
 
@@ -46,6 +46,13 @@ node skill/skill.js win-show immediate
 ```
 
 完整命令清单见 [skill/SKILL.md](skill/SKILL.md)；也可以用任意 HTTP 客户端直接调 REST API。
+
+### workBuddy 安装
+- 把skill 目录压缩成zip 并导入
+<img width="2374" height="810" alt="8809a26e6c94186a6fcdf8a00dd2ba19" src="https://github.com/user-attachments/assets/cdff4ff8-9400-41ed-8a8e-8219afdea981" />
+
+<img width="982" height="726" alt="7eb798395134acee4a4932d66b85178e" src="https://github.com/user-attachments/assets/87cd1272-f5f2-43c1-b121-c01923c0e50f" />
+
 
 ## 安全说明
 
