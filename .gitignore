@@ -1,2 +1,3 @@
 # 工具栏布局记忆运行时产物（DLL 同目录生成）
 toolbar.ini
+!tb-info-addin.dll
